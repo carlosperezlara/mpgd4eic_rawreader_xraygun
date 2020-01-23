@@ -7,11 +7,9 @@
 
 #include "feu.h"
 
+#include <TH1.h>
+#include <TH2.h>
 #include <TF1.h>
-#include <TH1F.h>
-#include <TH2F.h>
-
-
 int init_done = 0;
 
 using namespace std;
