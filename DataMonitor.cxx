@@ -20,6 +20,7 @@
 #include <TTimer.h>
 #include <TH1D.h>
 #include <TProfile.h>
+#include <TProfile2D.h>
 #include <TH2D.h>
 #include <TTimeStamp.h>
 #include <TLatex.h>
@@ -46,24 +47,54 @@ void DataMonitor::Merge() {
   // in fChannel into persistent histograms
   if(!fReady) return; // executes only if all
   if(fLearning) {     // objects were created
+    // loading up pedestal-subtracted waveforms
     for(int i=0; i!=kNumberOfBoards; ++i) {
-      int bins = fScan[i]->GetXaxis()->GetNbins();
-      int binsk = fScan[i]->GetYaxis()->GetNbins();
-      for(int j=0; j!=bins; ++j) {
+      int binsch = fScan[i]->GetXaxis()->GetNbins();
+      int binssa = fScan[i]->GetYaxis()->GetNbins();
+      int kmin = fIntMean[i] - fIntHWindow[i]-1;
+      int kmax = fIntMean[i] + fIntHWindow[i]+1;
+      int kwid = kmax-kmin-1;
+      for(int j=0; j!=binsch; ++j) {
+	double ped = fPedestals[i][j];
+	if(1) {
+	  ped=0;
+	  for(int k=kNumberOfSamples-fIntHWindow[i]; k!=kNumberOfSamples; ++k) {
+	    ped += fScan[i]->GetBinContent(j+1,k+1);
+	  }
+	  ped /= fIntHWindow[i];
+	}
+	double sum = 0;
+	//std::cout << "DBG " << j << ": " << ped << " " << kmin << " " << kmax << " " << kwid << std::endl;
+	for(int k=0; k!=binssa; ++k) {
+	  double val = fScan[i]->GetBinContent(j+1,k+1);
+	  fScanAdc[i]->Fill(double(j),double(k),val);
+	  if(j==75) fScanWav[i]->Fill(double(k),val);
+	  val -= ped;
+	  fScanPed[i]->Fill(double(j),double(k),val);
+	  if((k>kmin)&&(k<kmax)) {
+	    sum += val;
+	  }
+	}
+	fScanSgn[i]->Fill(double(j),sum);
       }
+    }
+    if(fNoEventsSampled>kNumberOfEventsLearning) {
+      fLearning = kFALSE;
     }
     if(fNoEventsSampled%kMergeRefresh==0) {
       RefreshAll();
       std::cout << fNoEventsSampled << std::endl;
     }
-    return;
   }
+
+  return;
+
   std::vector<std::pair<unsigned, unsigned> > myhits;
   for(int i=0; i!=kNumberOfBoards; ++i) {
     for(int j=0; j!=fDREAMChannels[i]; ++j) {
       Int_t bpea = fChannel[i][j]->GetMaximumBin();
-      Int_t bmin = bpea-fIntWindow[i];
-      Int_t bmax = bpea+fIntWindow[i];
+      Int_t bmin = bpea-fIntHWindow[i];
+      Int_t bmax = bpea+fIntHWindow[i];
       if(bmin<0) bmin=0;
       if(bmax>kNumberOfSamples) bmax=kNumberOfSamples;
       Double_t sum = fChannel[i][j]->Integral( bmin, bmax  );
@@ -197,11 +228,10 @@ void DataMonitor::NewRun(Int_t run) {
 }
 //====================
 void DataMonitor::NewEvent(Int_t evr) {
-  fReady = true;
+  //fReady = true;
   for(int i=0; i!=kNumberOfBoards; ++i) {
-    fScan[i]->Reset();
-    fScanPed[i]->Reset();
     for(int j=0; j!=kNumberOfChannels; ++j) {
+      fScan[i]->Reset();
       if(!fChannel[i][j]) {
 	fReady = false;
 	break;
@@ -351,17 +381,16 @@ void DataMonitor::ReadConfig() {
   std::cout << std::endl;
 
   for(int i=0; i!=kNumberOfBoards; ++i) {
-    fin.open( Form("./ped/board%d.ped") );
+    fin.open( Form("./ped/board%d.ped",i) );
     std::cout << Form(" * reading ./ped/board%d.ped",i) << "... ";
-    int nread=0;
-    for(;;) {
+    int nread;
+   for(nread=0;nread!=kTotalNumberOfChannels;++nread) {
       fin >> fPedestals[i][nread];
       if(!fin.good()) break;
-      nread++;
     }
+    fin.close();
     std::cout << nread << " values found" << std::endl;
   }
-  fin.close();
 
 }
 //====================
@@ -511,12 +540,27 @@ void DataMonitor::CreateScans(TGCompositeFrame *mf) {
   TRootEmbeddedCanvas *embeddedCanvas2 = new TRootEmbeddedCanvas("overall scan",mf2,0.95*__window_wd__, 0.9*__window_ht__,kSunkenFrame);
   Int_t cId2 = embeddedCanvas2->GetCanvasWindowId();
   fCanvasScans = new TCanvas("CanvasScans", 10, 10, cId2);
-  embeddedCanvas2->AdoptCanvas(fCanvasScan);
+  embeddedCanvas2->AdoptCanvas(fCanvasScans);
   mf2->AddFrame(embeddedCanvas2, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
-  fCanvasScan->Divide(kNumberOfBoards,1,0,0);
+  fCanvasScans->Divide(kNumberOfBoards,1,0,0);
   for(int i=0; i!=kNumberOfBoards; ++i) {
-    TVirtualPad *tmp = fCanvasScan->cd(i+1);
-    fScan[i]->Draw("COL");
+    TVirtualPad *tmp = fCanvasScans->cd(i+1);
+    fScanAdc[i]->Draw("COL");
+  }
+}
+//====================
+void DataMonitor::CreateScansWav(TGCompositeFrame *mf) {
+  TGCompositeFrame *mf2 = new TGCompositeFrame(mf, 170, 20, kVerticalFrame);
+  mf->AddFrame(mf2, new TGLayoutHints(kLHintsTop | kLHintsExpandX,5,5,2,2));
+  TRootEmbeddedCanvas *embeddedCanvas2 = new TRootEmbeddedCanvas("average waveform",mf2,0.95*__window_wd__, 0.9*__window_ht__,kSunkenFrame);
+  Int_t cId2 = embeddedCanvas2->GetCanvasWindowId();
+  fCanvasScansWav = new TCanvas("CanvasScansWav", 10, 10, cId2);
+  embeddedCanvas2->AdoptCanvas(fCanvasScansWav);
+  mf2->AddFrame(embeddedCanvas2, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
+  fCanvasScansWav->Divide(kNumberOfBoards,1,0,0);
+  for(int i=0; i!=kNumberOfBoards; ++i) {
+    TVirtualPad *tmp = fCanvasScansWav->cd(i+1);
+    fScanWav[i]->Draw("hist");
   }
 }
 //====================
@@ -526,12 +570,27 @@ void DataMonitor::CreateScansPed(TGCompositeFrame *mf) {
   TRootEmbeddedCanvas *embeddedCanvas2 = new TRootEmbeddedCanvas("overall scan pedestal",mf2,0.95*__window_wd__, 0.9*__window_ht__,kSunkenFrame);
   Int_t cId2 = embeddedCanvas2->GetCanvasWindowId();
   fCanvasScansPed = new TCanvas("CanvasScansPed", 10, 10, cId2);
-  embeddedCanvas2->AdoptCanvas(fCanvasScanPed);
+  embeddedCanvas2->AdoptCanvas(fCanvasScansPed);
   mf2->AddFrame(embeddedCanvas2, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
-  fCanvasScanPed->Divide(kNumberOfBoards,1,0,0);
+  fCanvasScansPed->Divide(kNumberOfBoards,1,0,0);
   for(int i=0; i!=kNumberOfBoards; ++i) {
-    TVirtualPad *tmp = fCanvasScanPed->cd(i+1);
+    TVirtualPad *tmp = fCanvasScansPed->cd(i+1);
     fScanPed[i]->Draw("COL");
+  }
+}
+//====================
+void DataMonitor::CreateScansSgn(TGCompositeFrame *mf) {
+  TGCompositeFrame *mf2 = new TGCompositeFrame(mf, 170, 20, kVerticalFrame);
+  mf->AddFrame(mf2, new TGLayoutHints(kLHintsTop | kLHintsExpandX,5,5,2,2));
+  TRootEmbeddedCanvas *embeddedCanvas2 = new TRootEmbeddedCanvas("overall signals",mf2,0.95*__window_wd__, 0.9*__window_ht__,kSunkenFrame);
+  Int_t cId2 = embeddedCanvas2->GetCanvasWindowId();
+  fCanvasScansSgn = new TCanvas("CanvasScansSgn", 10, 10, cId2);
+  embeddedCanvas2->AdoptCanvas(fCanvasScansSgn);
+  mf2->AddFrame(embeddedCanvas2, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
+  fCanvasScansSgn->Divide(kNumberOfBoards,1,0,0);
+  for(int i=0; i!=kNumberOfBoards; ++i) {
+    TVirtualPad *tmp = fCanvasScansSgn->cd(i+1);
+    fScanSgn[i]->Draw("hist");
   }
 }
 //====================
@@ -543,7 +602,7 @@ void DataMonitor::CreateLearning(TGCompositeFrame *mf) {
   fCanvasLearning = new TCanvas("CanvasLearning", 10, 10, cId2);
   embeddedCanvas2->AdoptCanvas(fCanvasLearning);
   mfR3->AddFrame(embeddedCanvas2, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
-  fCanvasScan->Divide(kNumberOfBoards,1,0,0);
+  fCanvasScans->Divide(kNumberOfBoards,1,0,0);
   for(int i=0; i!=kNumberOfBoards; ++i) {
     TVirtualPad *tmp = fCanvasLearning->cd(i+1);
     fHitLearning[i]->Draw();
@@ -671,16 +730,53 @@ void DataMonitor::CreateHistory(TGCompositeFrame *mf) {
 //====================
 void DataMonitor::RefreshAll() {
   //std::cout << "  >> RefreshAll called" << std::endl;
-  if(fTabContainerOne&&fCanvasScan) {
-    fCanvasScan->SetEditable(kTRUE);
-    for(int i=0; i!=kNumberOfBoards; ++i) {
-      if(fNotInstalled[i/kNumberOfChannels]) continue;
-      fCanvasScan->cd(i+1)->Modified();
-      fCanvasScan->cd(i+1)->Update();
+
+  // refresh TabContainerOne
+  if(fTabContainerOne) {
+    if(fTabContainerOne->GetCurrent()==0&&fCanvasScans) {
+      fCanvasScans->SetEditable(kTRUE);
+      for(int i=0; i!=kNumberOfBoards; ++i) {
+	if(fNotInstalled[i]) continue;
+	fCanvasScans->cd(i+1)->Modified();
+	fCanvasScans->cd(i+1)->Update();
+      }
+      fCanvasScans->Modified();
+      fCanvasScans->Update();
+      fCanvasScans->SetEditable(kFALSE);
     }
-    fCanvasScan->Modified();
-    fCanvasScan->Update();
-    fCanvasScan->SetEditable(kFALSE);
+    if(fTabContainerOne->GetCurrent()==1&&fCanvasScansSgn) {
+      fCanvasScansWav->SetEditable(kTRUE);
+      for(int i=0; i!=kNumberOfBoards; ++i) {
+	if(fNotInstalled[i]) continue;
+	fCanvasScansWav->cd(i+1)->Modified();
+	fCanvasScansWav->cd(i+1)->Update();
+      }
+      fCanvasScansWav->Modified();
+      fCanvasScansWav->Update();
+      fCanvasScansWav->SetEditable(kFALSE);
+    }
+    if(fTabContainerOne->GetCurrent()==2&&fCanvasScansPed) {
+      fCanvasScansPed->SetEditable(kTRUE);
+      for(int i=0; i!=kNumberOfBoards; ++i) {
+	if(fNotInstalled[i]) continue;
+	fCanvasScansPed->cd(i+1)->Modified();
+	fCanvasScansPed->cd(i+1)->Update();
+      }
+      fCanvasScansPed->Modified();
+      fCanvasScansPed->Update();
+      fCanvasScansPed->SetEditable(kFALSE);
+    }
+    if(fTabContainerOne->GetCurrent()==3&&fCanvasScansSgn) {
+      fCanvasScansSgn->SetEditable(kTRUE);
+      for(int i=0; i!=kNumberOfBoards; ++i) {
+	if(fNotInstalled[i]) continue;
+	fCanvasScansSgn->cd(i+1)->Modified();
+	fCanvasScansSgn->cd(i+1)->Update();
+      }
+      fCanvasScansSgn->Modified();
+      fCanvasScansSgn->Update();
+      fCanvasScansSgn->SetEditable(kFALSE);
+    }
   }
 
   if(fTabContainer) {
@@ -824,9 +920,16 @@ void DataMonitor::ReCreateHistograms() {
     fScan[i] = new TH2D( Form("SCAN%d",i), Form("SCAN%d;Channel;Sample",i),
 			 kTotalNumberOfChannels, -0.5, kTotalNumberOfChannels-0.5,
 			 kNumberOfSamples, -0.5, kNumberOfSamples-0.5 );
-    fScanPed[i] = new TH2D( Form("SCANPED%d",i), Form("SCANPED%d;Channel;Sample",i),
-			    kTotalNumberOfChannels, -0.5, kTotalNumberOfChannels-0.5,
-			    kNumberOfSamples, -0.5, kNumberOfSamples-0.5 );
+    fScanAdc[i] = new TProfile2D( Form("SCANADC%d",i), Form("SCANADC%d;Channel;Sample;< ADC >",i),
+				  kTotalNumberOfChannels, -0.5, kTotalNumberOfChannels-0.5,
+				  kNumberOfSamples, -0.5, kNumberOfSamples-0.5 );
+    fScanWav[i] = new TProfile( Form("SCANWAV%d",i), Form("SCANWAV%d;Sample;< ADC >",i),
+				kNumberOfSamples, -0.5, kNumberOfSamples-0.5 );
+    fScanPed[i] = new TProfile2D( Form("SCANPED%d",i), Form("SCANPED%d;Channel;Sample; < ADC-PED >",i),
+				  kTotalNumberOfChannels, -0.5, kTotalNumberOfChannels-0.5,
+				  kNumberOfSamples, -0.5, kNumberOfSamples-0.5 );
+    fScanSgn[i] = new TProfile( Form("SCANSGN%d",i), Form("SCANSGN%d;Channel;< sgn >",i),
+				kTotalNumberOfChannels, -0.5, kTotalNumberOfChannels-0.5 );
     for(int j=0; j!=kNumberOfChannels; ++j) {
       fChannel[i][j] = NULL;
       fSignal[i][j] = NULL;
@@ -844,12 +947,6 @@ void DataMonitor::ReCreateHistograms() {
       StyleH1(fWidth[i][j]);
     }
   }
-  //===LOAD PEDESTALS
-  for(int i=0; i!=kNumberOfBoards; ++i) {
-    for(int j=0; j!=kNumberOfChannels; ++j) {
-      fPedestals[i][j] = 0;
-    }
-  }
   std::cout << "ReCreateHistograms DONE" << std::endl;
 }
 //====================
@@ -864,6 +961,8 @@ DataMonitor::DataMonitor(TApplication *app, UInt_t w, UInt_t h) {
   fNoEventsSampled = 0;
   for(int bd=0; bd!=kNumberOfBoards; ++bd) {
     fDiagrams[bd] = NULL;
+    fIntMean[bd] = 8;
+    fIntHWindow[bd] = 5;
   }
   fThisRun = NULL;
   fEventsSampled = NULL;
@@ -907,8 +1006,12 @@ DataMonitor::DataMonitor(TApplication *app, UInt_t w, UInt_t h) {
 		       new TGLayoutHints(kLHintsTop | kLHintsExpandX,2,2,2,2));
   TGCompositeFrame *tab_1_0 = fTabContainerOne->AddTab("Last Event");
   CreateScans(tab_1_0);
-  TGCompositeFrame *tab_1_1 = fTabContainerOne->AddTab("Learning Spot");
-  //CreateLearning(tab_1_1);
+  TGCompositeFrame *tab_1_1 = fTabContainerOne->AddTab("Average Waveform");
+  CreateScansWav(tab_1_1);
+  TGCompositeFrame *tab_1_2 = fTabContainerOne->AddTab("Last Event Reduced");
+  CreateScansPed(tab_1_2);
+  TGCompositeFrame *tab_1_3 = fTabContainerOne->AddTab("Average Signals");
+  CreateScansSgn(tab_1_3);
   fWindowOne->MapSubwindows();
   fWindowOne->Layout();
   fWindowOne->MapWindow();
@@ -975,7 +1078,9 @@ DataMonitor::DataMonitor(TApplication *app, UInt_t w, UInt_t h) {
   fTabContainer->SetTab(0);
   */
 
+  fReady = kTRUE;
   RefreshAll();
+
   std::cout << " DM: Please wait few seconds. Starting engine..." << std::endl;
 }
 //====================

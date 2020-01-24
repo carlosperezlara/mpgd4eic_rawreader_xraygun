@@ -18,8 +18,9 @@ int pinit() {
 }
 //======================
 int process_event (Event * e) {
-  std::cout << " [pmonitor::process_event called" << std::endl;
-
+  //std::cout << " [pmonitor::process_event called" << std::endl;
+  if(!gDM->IsReady()) return 0;
+  
   //REAL DATA
   Int_t run = e->getRunNumber();
   Int_t evnr = e->getEvtSequence();
@@ -40,10 +41,10 @@ int process_event (Event * e) {
     gDM->NewRun(run);
     gCurrentRun = run;
   }
-  gDM->NewEvent( evnr );
   
   Packet *p = e->getPacket(3000);
   if(p) {
+    gDM->NewEvent( evnr );
     int nfeu = p->iValue(0, "NR_FEU");
     //std::cout << " Number of FEUs " << nfeu << std::endl;
     if(nfeu>9) {
@@ -67,18 +68,25 @@ int process_event (Event * e) {
 	  std::cout << " reports number of chips greater than 8. Skipping FEU." << std::endl;
 	  continue;
 	}
-	// ALL aboard
-	for(int chip=0; chip<nchips; ++chip) {
-	  if( !p->iValue(feuid,chip,"DREAM_ENABLED") ) continue;
-	  for(int ch=0; ch!=64; ++ch) {
-	    gHist2D = gDM->GetScan(feu);
-	    for(int sa=0; sa!=samples; ++sa) {
-	      Int_t dreamch = ch+64*chip;
-	      Int_t adc = p->iValue( feuid, dreamch, sa);
-	      gHist2D->Fill( double(dreamch), double(sa),  double(adc) );
-	    }	  
+
+	// Performs a quick scan of the data being recorded
+	// determines which channels are really exposed to beam
+	// after learning it will know which cell to watch
+	if(gDM->IsLearning) {
+	  for(int chip=0; chip<nchips; ++chip) {
+	    if( !p->iValue(feuid,chip,"DREAM_ENABLED") ) continue;
+	    for(int ch=0; ch!=64; ++ch) {
+	      gHist2D = gDM->GetScan(feu);
+	      for(int sa=0; sa!=samples; ++sa) {
+		Int_t dreamch = ch+64*chip;
+		Int_t adc = p->iValue( feuid, dreamch, sa);
+		gHist2D->Fill( double(dreamch), double(sa),  double(adc) );
+	      }	  
+	    }
 	  }
 	}
+	// Checks only channels of interest for
+	// a quick analysis of the data
 	if(!gDM->IsLearning()) {
 	  int nch = gDM->GetDREAMChannels(feu);
 	  int minch = gDM->GetDREAMChannel(feu,0);

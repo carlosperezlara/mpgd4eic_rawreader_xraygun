@@ -23,11 +23,14 @@
 #include <TImage.h>
 
 const Int_t kMaxNumberOfBoards=9;
-const Int_t kMaxNumberOfChannels=512;
+const Int_t kMaxNumberOfChannels=128;
 
 class DataMonitor {
  private:
   void CreateScans(TGCompositeFrame *mf);
+  void CreateScansPed(TGCompositeFrame *mf);
+  void CreateScansSgn(TGCompositeFrame *mf);
+  void CreateScansWav(TGCompositeFrame *mf);
   void CreateLearning(TGCompositeFrame *mf);
 
   void CreateDisplayConfiguration(TGCompositeFrame *mf);
@@ -65,12 +68,18 @@ class DataMonitor {
   TH1D *fTimeSummaryTemp;
   TH2Poly *fDiagrams[kMaxNumberOfBoards];
 
-  TH2D *fScan[kMaxNumberOfBoards];
-  TH2D *fScanPed[kMaxNumberOfBoards];
+  TH2D       *fScan[kMaxNumberOfBoards];
+  TProfile2D *fScanAdc[kMaxNumberOfBoards];
+  TProfile   *fScanWav[kMaxNumberOfBoards];
+  TProfile2D *fScanPed[kMaxNumberOfBoards];
+  TProfile   *fScanSgn[kMaxNumberOfBoards];
+
   TH1D *fHitLearning[kMaxNumberOfBoards];
   
   TCanvas *fCanvasScans;
+  TCanvas *fCanvasScansWav;
   TCanvas *fCanvasScansPed;
+  TCanvas *fCanvasScansSgn;
   TCanvas *fCanvasLearning;
 
   TCanvas *fCanvasMap;
@@ -111,7 +120,8 @@ class DataMonitor {
   Int_t fDREAMChannels[kMaxNumberOfBoards];
   Int_t fDREAMChannel[kMaxNumberOfBoards][kMaxNumberOfChannels];
   Bool_t fNotInstalled[kMaxNumberOfBoards];
-  Double_t fIntWindow[kMaxNumberOfBoards];
+  Double_t fIntMean[kMaxNumberOfBoards];
+  Double_t fIntHWindow[kMaxNumberOfBoards];
   Bool_t fReady;
   Bool_t fLearning;
   
@@ -129,6 +139,7 @@ class DataMonitor {
   Int_t GetDREAMChannel(Int_t bd,Int_t ch) {return fDREAMChannel[bd][ch];}
   Int_t IsBoardNotInstalled(Int_t bd) {return fNotInstalled[bd];}
   void SetXY(Double_t x, Double_t y) {fPosX=x;fPosY=y;fClosestCell=GetCellName(x,y);}
+  Bool_t IsReady() {return fReady;}
   Bool_t IsLearning() {return fLearning;}
   
   TGLabel *fThisRun;
@@ -147,7 +158,7 @@ class DataMonitor {
   Int_t kTotalNumberOfChannels=128;
   Int_t kNumberOfChannels=26;
   Int_t kNumberOfSamples=16;
-  Int_t kNumberOfEventsLearning=100;
+  Int_t kNumberOfEventsLearning=500;
   Int_t kMergeRefresh=1000; // noevents
   Int_t kNewEventRefresh=100; // noevents
 
