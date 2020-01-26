@@ -72,7 +72,7 @@ int process_event (Event * e) {
 	// Performs a quick scan of the data being recorded
 	// determines which channels are really exposed to beam
 	// after learning it will know which cell to watch
-	if(gDM->IsLearning) {
+	if(gDM->IsLearning()) {
 	  for(int chip=0; chip<nchips; ++chip) {
 	    if( !p->iValue(feuid,chip,"DREAM_ENABLED") ) continue;
 	    for(int ch=0; ch!=64; ++ch) {

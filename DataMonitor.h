@@ -27,11 +27,17 @@ const Int_t kMaxNumberOfChannels=128;
 
 class DataMonitor {
  private:
-  void CreateScans(TGCompositeFrame *mf);
+  void CreateScansAdc(TGCompositeFrame *mf);
   void CreateScansPed(TGCompositeFrame *mf);
   void CreateScansSgn(TGCompositeFrame *mf);
   void CreateScansWav(TGCompositeFrame *mf);
-  void CreateLearning(TGCompositeFrame *mf);
+  void Learn();
+  void CreateAnalysisMax(TGCompositeFrame *mf);
+  void CreateAnalysisSgn(TGCompositeFrame *mf);
+  void CreateAnalysisWid(TGCompositeFrame *mf);
+  void CreateAnalysisAmp(TGCompositeFrame *mf);
+  void CreateAnalysisCen(TGCompositeFrame *mf);
+
 
   void CreateDisplayConfiguration(TGCompositeFrame *mf);
   void CreateClusters(TGCompositeFrame *mf);
@@ -58,7 +64,6 @@ class DataMonitor {
   TProfile *fSignal[kMaxNumberOfBoards][kMaxNumberOfChannels]; // display kMaxNumberOfChannels strips
   TProfile *fHitSummary[kMaxNumberOfBoards];
   TProfile *fTimeSummary[kMaxNumberOfBoards];
-  TH1D *fChannel[kMaxNumberOfBoards][kMaxNumberOfChannels]; // display kMaxNumberOfChannels strips
   TH1D *fHeight[kMaxNumberOfBoards][kMaxNumberOfChannels]; // display kMaxNumberOfChannels strips
   TH1D *fWidth[kMaxNumberOfBoards][kMaxNumberOfChannels]; // display kMaxNumberOfChannels strips
   TH1D *fClusters_Num[kMaxNumberOfBoards];
@@ -68,20 +73,35 @@ class DataMonitor {
   TH1D *fTimeSummaryTemp;
   TH2Poly *fDiagrams[kMaxNumberOfBoards];
 
-  TH2D       *fScan[kMaxNumberOfBoards];
+
+  TH1D *fHitLearning[kMaxNumberOfBoards];
+  
+  TH2D *fScan[kMaxNumberOfBoards];
+  TH1D *fChannel[kMaxNumberOfBoards][kMaxNumberOfChannels];
+
+  TGMainFrame *fWindowOne;
+  TCanvas *fCanvasScansAdc;
+  TCanvas *fCanvasScansWav;
+  TCanvas *fCanvasScansPed;
+  TCanvas *fCanvasScansSgn;
+  TCanvas *fCanvasLearning;
   TProfile2D *fScanAdc[kMaxNumberOfBoards];
   TProfile   *fScanWav[kMaxNumberOfBoards];
   TProfile2D *fScanPed[kMaxNumberOfBoards];
   TProfile   *fScanSgn[kMaxNumberOfBoards];
 
-  TH1D *fHitLearning[kMaxNumberOfBoards];
+  TGMainFrame *fWindowTwo;
+  TCanvas *fCanvasAnalysisMax;
+  TCanvas *fCanvasAnalysisSgn;
+  TCanvas *fCanvasAnalysisWid;
+  TCanvas *fCanvasAnalysisAmp;
+  TCanvas *fCanvasAnalysisCen;
+  TH2D *fAnalysisMax[kMaxNumberOfBoards];
+  TH2D *fAnalysisSgn[kMaxNumberOfBoards];
+  TH1D *fAnalysisAmp[kMaxNumberOfBoards];
+  TH1D *fAnalysisWid[kMaxNumberOfBoards];
+  TH1D *fAnalysisCen[kMaxNumberOfBoards];
   
-  TCanvas *fCanvasScans;
-  TCanvas *fCanvasScansWav;
-  TCanvas *fCanvasScansPed;
-  TCanvas *fCanvasScansSgn;
-  TCanvas *fCanvasLearning;
-
   TCanvas *fCanvasMap;
   TCanvas *fCanvasMapS;
   TCanvas *fCanvasMapH;
@@ -93,7 +113,6 @@ class DataMonitor {
   TCanvas *fCanvasMapCL;
   TGraph *fHistory[kMaxNumberOfBoards];
 
-  TGMainFrame *fWindowOne;
 
   TGMainFrame *fWindowHitSummary;
   TGMainFrame *fWindowTimeSummary;
@@ -124,6 +143,9 @@ class DataMonitor {
   Double_t fIntHWindow[kMaxNumberOfBoards];
   Bool_t fReady;
   Bool_t fLearning;
+  Bool_t fEBEPedestals;
+  Int_t fCellChannels[kMaxNumberOfBoards][20][2];
+  Double_t fCellPitch[kMaxNumberOfBoards][20];
   
  public:
   DataMonitor(TApplication *app, UInt_t w, UInt_t h);
@@ -147,6 +169,8 @@ class DataMonitor {
   TGLabel *fSamplingFraction;
 
   TGTab *fTabContainerOne;
+  TGTab *fTabContainerTwo;
+
   TGTab *fTabContainer;
   TGTab *fTabContainer2;
 

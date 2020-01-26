@@ -45,8 +45,9 @@ ClassImp(DataMonitor);
 void DataMonitor::Merge() {
   // Merges event-by-event information stored
   // in fChannel into persistent histograms
-  if(!fReady) return; // executes only if all
-  if(fLearning) {     // objects were created
+  if(!fReady) return; // executes only if all objects were created
+
+  if(fLearning) { //Learning Stage
     // loading up pedestal-subtracted waveforms
     for(int i=0; i!=kNumberOfBoards; ++i) {
       int binsch = fScan[i]->GetXaxis()->GetNbins();
@@ -56,7 +57,7 @@ void DataMonitor::Merge() {
       int kwid = kmax-kmin-1;
       for(int j=0; j!=binsch; ++j) {
 	double ped = fPedestals[i][j];
-	if(1) {
+	if(fEBEPedestals) {
 	  ped=0;
 	  for(int k=kNumberOfSamples-fIntHWindow[i]; k!=kNumberOfSamples; ++k) {
 	    ped += fScan[i]->GetBinContent(j+1,k+1);
@@ -79,11 +80,47 @@ void DataMonitor::Merge() {
       }
     }
     if(fNoEventsSampled>kNumberOfEventsLearning) {
-      fLearning = kFALSE;
+      Learn();
     }
     if(fNoEventsSampled%kMergeRefresh==0) {
       RefreshAll();
       std::cout << fNoEventsSampled << std::endl;
+    }
+  } else { // analysis stage
+    for(int i=0; i!=kNumberOfBoards; ++i) {
+      std::vector<std::pair<unsigned, unsigned> > myhits;
+      int kmin = fIntMean[i] - fIntHWindow[i];
+      int kmax = fIntMean[i] + fIntHWindow[i];
+      for(int j=0; j!=fDREAMChannels[i]; ++j) {
+        double ped = fPedestals[i][j];
+        if(fEBEPedestals) {
+          ped=0;
+          for(int k=kNumberOfSamples-fIntHWindow[i]; k!=kNumberOfSamples; ++k) {
+            ped += fScan[i]->GetBinContent(j+1,k+1);
+          }
+          ped /= fIntHWindow[i];
+        }
+        double sum = 0;
+	double max = fChannel[i][j]->GetBinContent(kmin+1);
+        for(int k=kmin; k!=kmax+1; ++k) {
+          double val = fChannel[i][j]->GetBinContent(k+1);
+	  if(val>max) max = val;
+          val -= ped;
+	  sum += val;
+        }
+        fAnalysisMax[i]->Fill(double(j),max);
+        fAnalysisSgn[i]->Fill(double(j),sum);
+	myhits.push_back( std::make_pair( fDREAMChannel[i][j], sum ) );
+      }
+      const MappingPlane *mplane = GetMappingPlane(i, fBoardCELL[i] );
+      if(!mplane) continue;
+      std::vector<Cluster> myclusters = mplane->GetClusters( myhits );
+      std::cout << myclusters.size() << " clusters" << std::endl;
+      for(unsigned kk=0; kk!=myclusters.size(); ++kk) {
+	fAnalysisWid[i]->Fill( myclusters[kk].mWidth );
+	fAnalysisAmp[i]->Fill( myclusters[kk].mAmplitude );
+	fAnalysisCen[i]->Fill( myclusters[kk].mCentroid );
+      }
     }
   }
 
@@ -266,62 +303,6 @@ void DataMonitor::NewEvent(Int_t evr) {
   //std::cout << "BB " << evr << std::endl;
 }
 //====================
-void DataMonitor::CreateClusters(TGCompositeFrame *mf) {
-  TRootEmbeddedCanvas *embeddedCanvas = new TRootEmbeddedCanvas("clustersplot",mf,
-								500,500,
-								kSunkenFrame);
-  Int_t cId = embeddedCanvas->GetCanvasWindowId();
-  fCanvasMapCL = new TCanvas("CanvasMapCL", 10, 10, cId);
-  embeddedCanvas->AdoptCanvas(fCanvasMapCL);
-  mf->AddFrame(embeddedCanvas, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
-  fCanvasMapCL->SetTopMargin(0.1);
-  fCanvasMapCL->SetBottomMargin(0.1);
-  fCanvasMapCL->SetLeftMargin(0.2);
-  fCanvasMapCL->SetRightMargin(0.1);
-  fCanvasMapCL->Divide(4,kNumberOfBoards);
-  for(int bd=0; bd!=kNumberOfBoards; ++bd) {
-    TVirtualPad *tmp1 = fCanvasMapCL->cd(bd*4+1);
-    fClusters_Num[bd]->Draw("HIST");
-    TVirtualPad *tmp2 = fCanvasMapCL->cd(bd*4+2);
-    fClusters_Amp[bd]->Draw("HIST");
-    TVirtualPad *tmp3 = fCanvasMapCL->cd(bd*4+3);
-    fClusters_Wid[bd]->Draw("HIST");
-    TVirtualPad *tmp4 = fCanvasMapCL->cd(bd*4+4);
-    fClusters_xCE[bd]->Draw("HIST");
-  }
-  fCanvasMapCL->SetEditable(kFALSE);
-}
-//====================
-void DataMonitor::CreateChannels(TGCompositeFrame *mf) {
-  TRootEmbeddedCanvas *embeddedCanvas = new TRootEmbeddedCanvas("channelsplot",mf,0.95*__window_wd__, 0.9*__window_ht__,kSunkenFrame);
-  Int_t cId = embeddedCanvas->GetCanvasWindowId();
-  fCanvasMap = new TCanvas("CanvasMap", 10, 10, cId);
-  embeddedCanvas->AdoptCanvas(fCanvasMap);
-  mf->AddFrame(embeddedCanvas, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
-  fCanvasMap->SetTopMargin(0.1);
-  fCanvasMap->SetBottomMargin(0.1);
-  fCanvasMap->SetLeftMargin(0.2);
-  fCanvasMap->SetRightMargin(0.1);
-  fCanvasMap->Divide(kNumberOfChannels,kNumberOfBoards,0,0);
-  //TH2D *axis = new TH2D("axis","",100,-15,270,100,-50,1099);
-  TH2D *axis = new TH2D("axis","",100,-kNumberOfSamples*0.1,kNumberOfSamples*1.1,100,-50,1099);
-  axis->SetStats(0);
-  axis->GetYaxis()->SetLabelSize(0.1);
-  axis->GetXaxis()->SetLabelSize(0.1);
-  //axis->SetTitleSize(50);
-  axis->GetXaxis()->SetNdivisions(508);
-  axis->GetYaxis()->SetNdivisions(508);
-  for(int i=0; i!=kNumberOfBoards; ++i) {
-    for(int j=0; j!=kNumberOfChannels; ++j) {
-      TVirtualPad *tmp = fCanvasMap->cd(i*kNumberOfChannels+j+1);
-      axis->SetTitle( Form("S%dP%d",i,j) );
-      axis->DrawCopy();
-      fChannel[i][j]->Draw("BSAME");
-    }
-  }
-  fCanvasMap->SetEditable(kFALSE);
-}
-//====================
 void DataMonitor::ReadPosition() {
   std::ifstream fin("./Position_Data/Last.log");
   fin >> fClosestCell;
@@ -352,6 +333,8 @@ void DataMonitor::ReadConfig() {
       kMergeRefresh = val.Atoi();
     } else if (var.Contains("kNewEventRefresh")) {
       kNewEventRefresh = val.Atoi();
+    } else if (var.Contains("fEBEPedestals")) {
+      fEBEPedestals = val.Atoi();
     }
   }
   fin.close();
@@ -392,6 +375,18 @@ void DataMonitor::ReadConfig() {
     std::cout << nread << " values found" << std::endl;
   }
 
+  for(int bd=0; bd!=kNumberOfBoards; ++bd) {
+    TString cells[20]={"A0","B0","C0","D0","E0",
+		       "F0","G0","H0","I0","J0",
+		       "A9","B9","C9","D9","E9",
+		       "F9","G9","H9","I9","J9" };
+    for(int idx=0; idx!=20; ++idx) {
+      const MappingPlane *mplane = GetMappingPlane(bd, cells[idx].Data());
+      if(!mplane) continue;
+      fCellChannels[bd][idx][0] = mplane->GetStripCount();
+      fCellChannels[bd][idx][1] = mplane->GetDreamChannel(0);
+    }
+  }
 }
 //====================
 void DataMonitor::ConfigureChannels() {
@@ -428,7 +423,8 @@ const MappingPlane* DataMonitor::GetMappingPlane(Int_t bd, TString sp, Int_t pl)
   MappingTable *mtable = NULL;
   mtable = fMapCollection->GetMappingTable( fBoardCode[bd].Data()  );
   if(!mtable) {
-    //std::cout << " Could not find board code " << bd << " " << fBoardCode[bd].Data() << " in collection." << std::endl;
+    //std::cout << " Could not find board code " << bd << " ";
+    //std::cout << fBoardCode[bd].Data() << " in collection." << std::endl;
     fNotInstalled[bd] = true;
   }
   if(fNotInstalled[bd]) return NULL;
@@ -436,7 +432,8 @@ const MappingPlane* DataMonitor::GetMappingPlane(Int_t bd, TString sp, Int_t pl)
   MappingSpot *mspot = NULL;
   mspot = mtable->GetMappingSpot(sp.Data()); assert(mspot);
   if(!mspot) {
-    std::cout << " Could not find cell code " << sp.Data() << " in table. abort" << std::endl;
+    //std::cout << " Could not find cell code " << sp.Data();
+    //std::cout << " in table. abort" << std::endl;
     exit(0);
   }
   return mspot->GetMappingPlane(pl);
@@ -534,17 +531,19 @@ void DataMonitor::CreateDisplayConfiguration(TGCompositeFrame *mf) {
   CreateHistory(mfR3);
 }
 //====================
-void DataMonitor::CreateScans(TGCompositeFrame *mf) {
+//====================
+//====================
+void DataMonitor::CreateScansAdc(TGCompositeFrame *mf) {
   TGCompositeFrame *mf2 = new TGCompositeFrame(mf, 170, 20, kVerticalFrame);
   mf->AddFrame(mf2, new TGLayoutHints(kLHintsTop | kLHintsExpandX,5,5,2,2));
   TRootEmbeddedCanvas *embeddedCanvas2 = new TRootEmbeddedCanvas("overall scan",mf2,0.95*__window_wd__, 0.9*__window_ht__,kSunkenFrame);
   Int_t cId2 = embeddedCanvas2->GetCanvasWindowId();
-  fCanvasScans = new TCanvas("CanvasScans", 10, 10, cId2);
-  embeddedCanvas2->AdoptCanvas(fCanvasScans);
+  fCanvasScansAdc = new TCanvas("CanvasScans", 10, 10, cId2);
+  embeddedCanvas2->AdoptCanvas(fCanvasScansAdc);
   mf2->AddFrame(embeddedCanvas2, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
-  fCanvasScans->Divide(kNumberOfBoards,1,0,0);
+  fCanvasScansAdc->Divide(kNumberOfBoards,1,0,0);
   for(int i=0; i!=kNumberOfBoards; ++i) {
-    TVirtualPad *tmp = fCanvasScans->cd(i+1);
+    TVirtualPad *tmp = fCanvasScansAdc->cd(i+1);
     fScanAdc[i]->Draw("COL");
   }
 }
@@ -594,20 +593,83 @@ void DataMonitor::CreateScansSgn(TGCompositeFrame *mf) {
   }
 }
 //====================
-void DataMonitor::CreateLearning(TGCompositeFrame *mf) {
-  TGCompositeFrame *mfR3 = new TGCompositeFrame(mf, 170, 20, kVerticalFrame);
-  mf->AddFrame(mfR3, new TGLayoutHints(kLHintsTop | kLHintsExpandX,5,5,2,2));
-  TRootEmbeddedCanvas *embeddedCanvas2 = new TRootEmbeddedCanvas("learning",mfR3,0.95*__window_wd__, 0.9*__window_ht__,kSunkenFrame);
+void DataMonitor::CreateAnalysisMax(TGCompositeFrame *mf) {
+  TGCompositeFrame *mf2 = new TGCompositeFrame(mf, 170, 20, kVerticalFrame);
+  mf->AddFrame(mf2, new TGLayoutHints(kLHintsTop | kLHintsExpandX,5,5,2,2));
+  TRootEmbeddedCanvas *embeddedCanvas2 = new TRootEmbeddedCanvas("analysis max",mf2,0.95*__window_wd__, 0.9*__window_ht__,kSunkenFrame);
   Int_t cId2 = embeddedCanvas2->GetCanvasWindowId();
-  fCanvasLearning = new TCanvas("CanvasLearning", 10, 10, cId2);
-  embeddedCanvas2->AdoptCanvas(fCanvasLearning);
-  mfR3->AddFrame(embeddedCanvas2, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
-  fCanvasScans->Divide(kNumberOfBoards,1,0,0);
+  fCanvasAnalysisMax = new TCanvas("CanvasAnalysisMax", 10, 10, cId2);
+  embeddedCanvas2->AdoptCanvas(fCanvasAnalysisMax);
+  mf2->AddFrame(embeddedCanvas2, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
+  fCanvasAnalysisMax->Divide(kNumberOfBoards,1,0,0);
   for(int i=0; i!=kNumberOfBoards; ++i) {
-    TVirtualPad *tmp = fCanvasLearning->cd(i+1);
-    fHitLearning[i]->Draw();
+    TVirtualPad *tmp = fCanvasAnalysisMax->cd(i+1);
+    fAnalysisMax[i]->Draw("colz");
   }
 }
+//====================
+void DataMonitor::CreateAnalysisSgn(TGCompositeFrame *mf) {
+  TGCompositeFrame *mf2 = new TGCompositeFrame(mf, 170, 20, kVerticalFrame);
+  mf->AddFrame(mf2, new TGLayoutHints(kLHintsTop | kLHintsExpandX,5,5,2,2));
+  TRootEmbeddedCanvas *embeddedCanvas2 = new TRootEmbeddedCanvas("overall signals",mf2,0.95*__window_wd__, 0.9*__window_ht__,kSunkenFrame);
+  Int_t cId2 = embeddedCanvas2->GetCanvasWindowId();
+  fCanvasAnalysisSgn = new TCanvas("CanvasAnalysisSgn", 10, 10, cId2);
+  embeddedCanvas2->AdoptCanvas(fCanvasAnalysisSgn);
+  mf2->AddFrame(embeddedCanvas2, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
+  fCanvasAnalysisSgn->Divide(kNumberOfBoards,1,0,0);
+  for(int i=0; i!=kNumberOfBoards; ++i) {
+    TVirtualPad *tmp = fCanvasAnalysisSgn->cd(i+1);
+    fAnalysisSgn[i]->Draw("colz");
+  }
+}
+//====================
+void DataMonitor::CreateAnalysisWid(TGCompositeFrame *mf) {
+  TGCompositeFrame *mf2 = new TGCompositeFrame(mf, 170, 20, kVerticalFrame);
+  mf->AddFrame(mf2, new TGLayoutHints(kLHintsTop | kLHintsExpandX,5,5,2,2));
+  TRootEmbeddedCanvas *embeddedCanvas2 = new TRootEmbeddedCanvas("analysis wid",mf2,0.95*__window_wd__, 0.9*__window_ht__,kSunkenFrame);
+  Int_t cId2 = embeddedCanvas2->GetCanvasWindowId();
+  fCanvasAnalysisWid = new TCanvas("CanvasAnalysisWid", 10, 10, cId2);
+  embeddedCanvas2->AdoptCanvas(fCanvasAnalysisWid);
+  mf2->AddFrame(embeddedCanvas2, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
+  fCanvasAnalysisWid->Divide(kNumberOfBoards,1,0,0);
+  for(int i=0; i!=kNumberOfBoards; ++i) {
+    TVirtualPad *tmp = fCanvasAnalysisWid->cd(i+1);
+    fAnalysisWid[i]->Draw("colz");
+  }
+}
+//====================
+void DataMonitor::CreateAnalysisAmp(TGCompositeFrame *mf) {
+  TGCompositeFrame *mf2 = new TGCompositeFrame(mf, 170, 20, kVerticalFrame);
+  mf->AddFrame(mf2, new TGLayoutHints(kLHintsTop | kLHintsExpandX,5,5,2,2));
+  TRootEmbeddedCanvas *embeddedCanvas2 = new TRootEmbeddedCanvas("cluster amp",mf2,0.95*__window_wd__, 0.9*__window_ht__,kSunkenFrame);
+  Int_t cId2 = embeddedCanvas2->GetCanvasWindowId();
+  fCanvasAnalysisAmp = new TCanvas("CanvasAnalysisAmp", 10, 10, cId2);
+  embeddedCanvas2->AdoptCanvas(fCanvasAnalysisAmp);
+  mf2->AddFrame(embeddedCanvas2, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
+  fCanvasAnalysisAmp->Divide(kNumberOfBoards,1,0,0);
+  for(int i=0; i!=kNumberOfBoards; ++i) {
+    TVirtualPad *tmp = fCanvasAnalysisAmp->cd(i+1);
+    fAnalysisAmp[i]->Draw("colz");
+  }
+}
+//====================
+void DataMonitor::CreateAnalysisCen(TGCompositeFrame *mf) {
+  TGCompositeFrame *mf2 = new TGCompositeFrame(mf, 170, 20, kVerticalFrame);
+  mf->AddFrame(mf2, new TGLayoutHints(kLHintsTop | kLHintsExpandX,5,5,2,2));
+  TRootEmbeddedCanvas *embeddedCanvas2 = new TRootEmbeddedCanvas("cluster centroid",mf2,0.95*__window_wd__, 0.9*__window_ht__,kSunkenFrame);
+  Int_t cId2 = embeddedCanvas2->GetCanvasWindowId();
+  fCanvasAnalysisCen = new TCanvas("CanvasAnalysisCen", 10, 10, cId2);
+  embeddedCanvas2->AdoptCanvas(fCanvasAnalysisCen);
+  mf2->AddFrame(embeddedCanvas2, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
+  fCanvasAnalysisCen->Divide(kNumberOfBoards,1,0,0);
+  for(int i=0; i!=kNumberOfBoards; ++i) {
+    TVirtualPad *tmp = fCanvasAnalysisCen->cd(i+1);
+    fAnalysisCen[i]->Draw("colz");
+  }
+}
+
+
+
 //====================
 void DataMonitor::CreateSignals(TGCompositeFrame *mf) {
   TRootEmbeddedCanvas *embeddedCanvas = new TRootEmbeddedCanvas("signalsplot",mf,0.95*__window_wd__, 0.9*__window_ht__,kSunkenFrame);
@@ -728,21 +790,72 @@ void DataMonitor::CreateHistory(TGCompositeFrame *mf) {
   fCanvasMapHI->SetEditable(kFALSE);
 }
 //====================
+void DataMonitor::Learn() {
+  std::cout << " * Learning: look for position per board... " << std::endl;
+  TString cells[20] = {"A0","B0","C0","D0","E0","F0","G0","H0","I0","J0",
+		       "A9","B9","C9","D9","E9","F9","G9","H9","I9","J9"};
+  for(int bd=0; bd!=kNumberOfBoards; ++bd) {
+    std::cout << "   - Board " << bd;
+    int nsa = fScanSgn[bd]->GetXaxis()->GetNbins();
+    // get three bins with highest value
+    int bins[3] = {0,1,2};
+    int x=0;
+    for(int sa=0; sa!=nsa; ++sa) {
+      if( fScanSgn[bd]->GetBinContent(bins[x]+1) < fScanSgn[bd]->GetBinContent(sa+1) ) {
+	bins[x] = sa;
+	x++;
+      }
+      if(x>2) x=0;
+    }
+    std::cout << " found {" << bins[0] << ", " << bins[1] << ", " << bins[2] << "}";
+    double sum=0, wei=1e-6;
+    for(int i=0; i!=3; ++i) {
+      sum += bins[i]*fScanSgn[bd]->GetBinContent(bins[i]+1);
+      wei += fScanSgn[bd]->GetBinContent(bins[i]+1);
+    }
+    double avg = sum/wei;
+    std::cout << " ==> " << avg;
+    fBoardCELL[bd] = "";
+    for(int idx=0; idx!=20; ++idx) {
+      int min = fCellChannels[bd][idx][1];
+      int max = min+fCellChannels[bd][idx][0]-1;
+      if( (avg-min>0)&&(max-avg>0) ) {
+	fBoardCELL[bd] = cells[idx].Data();
+	fDREAMChannels[bd] = fCellChannels[bd][idx][0];
+	for(int ch=0; ch!=fDREAMChannels[bd]; ++ch) {
+	  fDREAMChannel[bd][ch] = fCellChannels[bd][idx][1]+ch;
+	}
+      }
+    }
+    std::cout << " ==> " << fBoardCELL[bd];
+    std::cout << " [" << fDREAMChannel[bd][0] << "-";
+    std::cout << fDREAMChannel[bd][fDREAMChannels[bd]-1] << "]";
+    std::cout << std::endl;
+    for(int ch=0; ch!=kNumberOfChannels; ++ch) {
+      TString lab = "";
+      if(ch<fDREAMChannels[bd]) lab = Form("%d",fDREAMChannel[bd][ch]);
+      fAnalysisMax[bd]->GetXaxis()->SetBinLabel(ch+1,lab.Data());
+      fAnalysisSgn[bd]->GetXaxis()->SetBinLabel(ch+1,lab.Data());
+    }
+  }
+  fLearning = kFALSE;
+}
+//====================
 void DataMonitor::RefreshAll() {
   //std::cout << "  >> RefreshAll called" << std::endl;
 
   // refresh TabContainerOne
   if(fTabContainerOne) {
-    if(fTabContainerOne->GetCurrent()==0&&fCanvasScans) {
-      fCanvasScans->SetEditable(kTRUE);
+    if(fTabContainerOne->GetCurrent()==0&&fCanvasScansAdc) {
+      fCanvasScansAdc->SetEditable(kTRUE);
       for(int i=0; i!=kNumberOfBoards; ++i) {
 	if(fNotInstalled[i]) continue;
-	fCanvasScans->cd(i+1)->Modified();
-	fCanvasScans->cd(i+1)->Update();
+	fCanvasScansAdc->cd(i+1)->Modified();
+	fCanvasScansAdc->cd(i+1)->Update();
       }
-      fCanvasScans->Modified();
-      fCanvasScans->Update();
-      fCanvasScans->SetEditable(kFALSE);
+      fCanvasScansAdc->Modified();
+      fCanvasScansAdc->Update();
+      fCanvasScansAdc->SetEditable(kFALSE);
     }
     if(fTabContainerOne->GetCurrent()==1&&fCanvasScansSgn) {
       fCanvasScansWav->SetEditable(kTRUE);
@@ -930,6 +1043,18 @@ void DataMonitor::ReCreateHistograms() {
 				  kNumberOfSamples, -0.5, kNumberOfSamples-0.5 );
     fScanSgn[i] = new TProfile( Form("SCANSGN%d",i), Form("SCANSGN%d;Channel;< sgn >",i),
 				kTotalNumberOfChannels, -0.5, kTotalNumberOfChannels-0.5 );
+    fAnalysisMax[i] = new TH2D( Form("ANAMAX%d",i), Form("ANAMAX%d;Channel;Max",i),
+				kNumberOfChannels, -0.5, kNumberOfChannels-0.5,
+				100, 0.0, 4e3 );
+    fAnalysisSgn[i] = new TH2D( Form("ANASGN%d",i), Form("ANASGN%d;Channel;Signal",i),
+				kNumberOfChannels, -0.5, kNumberOfChannels-0.5,
+				300, 0.0, fIntHWindow[i]*2*4e3/*1e5*/ );
+    fAnalysisWid[i] = new TH1D( Form("ANAWID%d",i), Form("ANAWID%d;Width",i),
+				kNumberOfChannels, -0.5, kNumberOfChannels-0.5);
+    fAnalysisAmp[i] = new TH1D( Form("ANAAMP%d",i), Form("ANAAMP%d;Amplitude",i),
+				300, 0.0, kNumberOfChannels*2*fIntHWindow[i]*4e3);
+    fAnalysisCen[i] = new TH1D( Form("ANACEN%d",i), Form("ANACEN%d;Position  [mm]",i),
+				300, -5.0, +5.0);
     for(int j=0; j!=kNumberOfChannels; ++j) {
       fChannel[i][j] = NULL;
       fSignal[i][j] = NULL;
@@ -948,6 +1073,62 @@ void DataMonitor::ReCreateHistograms() {
     }
   }
   std::cout << "ReCreateHistograms DONE" << std::endl;
+}
+//====================
+void DataMonitor::CreateClusters(TGCompositeFrame *mf) {
+  TRootEmbeddedCanvas *embeddedCanvas = new TRootEmbeddedCanvas("clustersplot",mf,
+								500,500,
+								kSunkenFrame);
+  Int_t cId = embeddedCanvas->GetCanvasWindowId();
+  fCanvasMapCL = new TCanvas("CanvasMapCL", 10, 10, cId);
+  embeddedCanvas->AdoptCanvas(fCanvasMapCL);
+  mf->AddFrame(embeddedCanvas, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
+  fCanvasMapCL->SetTopMargin(0.1);
+  fCanvasMapCL->SetBottomMargin(0.1);
+  fCanvasMapCL->SetLeftMargin(0.2);
+  fCanvasMapCL->SetRightMargin(0.1);
+  fCanvasMapCL->Divide(4,kNumberOfBoards);
+  for(int bd=0; bd!=kNumberOfBoards; ++bd) {
+    TVirtualPad *tmp1 = fCanvasMapCL->cd(bd*4+1);
+    fClusters_Num[bd]->Draw("HIST");
+    TVirtualPad *tmp2 = fCanvasMapCL->cd(bd*4+2);
+    fClusters_Amp[bd]->Draw("HIST");
+    TVirtualPad *tmp3 = fCanvasMapCL->cd(bd*4+3);
+    fClusters_Wid[bd]->Draw("HIST");
+    TVirtualPad *tmp4 = fCanvasMapCL->cd(bd*4+4);
+    fClusters_xCE[bd]->Draw("HIST");
+  }
+  fCanvasMapCL->SetEditable(kFALSE);
+}
+//====================
+void DataMonitor::CreateChannels(TGCompositeFrame *mf) {
+  TRootEmbeddedCanvas *embeddedCanvas = new TRootEmbeddedCanvas("channelsplot",mf,0.95*__window_wd__, 0.9*__window_ht__,kSunkenFrame);
+  Int_t cId = embeddedCanvas->GetCanvasWindowId();
+  fCanvasMap = new TCanvas("CanvasMap", 10, 10, cId);
+  embeddedCanvas->AdoptCanvas(fCanvasMap);
+  mf->AddFrame(embeddedCanvas, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
+  fCanvasMap->SetTopMargin(0.1);
+  fCanvasMap->SetBottomMargin(0.1);
+  fCanvasMap->SetLeftMargin(0.2);
+  fCanvasMap->SetRightMargin(0.1);
+  fCanvasMap->Divide(kNumberOfChannels,kNumberOfBoards,0,0);
+  //TH2D *axis = new TH2D("axis","",100,-15,270,100,-50,1099);
+  TH2D *axis = new TH2D("axis","",100,-kNumberOfSamples*0.1,kNumberOfSamples*1.1,100,-50,1099);
+  axis->SetStats(0);
+  axis->GetYaxis()->SetLabelSize(0.1);
+  axis->GetXaxis()->SetLabelSize(0.1);
+  //axis->SetTitleSize(50);
+  axis->GetXaxis()->SetNdivisions(508);
+  axis->GetYaxis()->SetNdivisions(508);
+  for(int i=0; i!=kNumberOfBoards; ++i) {
+    for(int j=0; j!=kNumberOfChannels; ++j) {
+      TVirtualPad *tmp = fCanvasMap->cd(i*kNumberOfChannels+j+1);
+      axis->SetTitle( Form("S%dP%d",i,j) );
+      axis->DrawCopy();
+      fChannel[i][j]->Draw("BSAME");
+    }
+  }
+  fCanvasMap->SetEditable(kFALSE);
 }
 //====================
 DataMonitor::DataMonitor(TApplication *app, UInt_t w, UInt_t h) {
@@ -997,18 +1178,18 @@ DataMonitor::DataMonitor(TApplication *app, UInt_t w, UInt_t h) {
 
 
   ///////////////
-  // WINDOW ONE
+  // WINDOW ONE : Learning Stage
   fWindowOne = new TGMainFrame(gClient->GetRoot(), __window_wd__, __window_ht__);
-  fWindowOne->SetWindowName("Quick Scan");
+  fWindowOne->SetWindowName("Quick Sample");
   fWindowOne->SetWMPosition(0,0);
   fTabContainerOne = new TGTab(fWindowOne,96,26);
   fWindowOne->AddFrame(fTabContainerOne,
 		       new TGLayoutHints(kLHintsTop | kLHintsExpandX,2,2,2,2));
-  TGCompositeFrame *tab_1_0 = fTabContainerOne->AddTab("Last Event");
-  CreateScans(tab_1_0);
-  TGCompositeFrame *tab_1_1 = fTabContainerOne->AddTab("Average Waveform");
+  TGCompositeFrame *tab_1_0 = fTabContainerOne->AddTab("Average ADC map");
+  CreateScansAdc(tab_1_0);
+  TGCompositeFrame *tab_1_1 = fTabContainerOne->AddTab("Average Waveform Sample");
   CreateScansWav(tab_1_1);
-  TGCompositeFrame *tab_1_2 = fTabContainerOne->AddTab("Last Event Reduced");
+  TGCompositeFrame *tab_1_2 = fTabContainerOne->AddTab("Average reduced ADC map");
   CreateScansPed(tab_1_2);
   TGCompositeFrame *tab_1_3 = fTabContainerOne->AddTab("Average Signals");
   CreateScansSgn(tab_1_3);
@@ -1016,6 +1197,31 @@ DataMonitor::DataMonitor(TApplication *app, UInt_t w, UInt_t h) {
   fWindowOne->Layout();
   fWindowOne->MapWindow();
   fWindowOne->Move(0,0);
+  ///////////////
+
+
+  ///////////////
+  // WINDOW TWO : Analysis Stage
+  fWindowTwo = new TGMainFrame(gClient->GetRoot(), __window_wd__, __window_ht__);
+  fWindowTwo->SetWindowName("Quick Data Analysis");
+  fWindowTwo->SetWMPosition(0,0);
+  fTabContainerTwo = new TGTab(fWindowTwo,96,26);
+  fWindowTwo->AddFrame(fTabContainerTwo,
+		       new TGLayoutHints(kLHintsTop | kLHintsExpandX,2,2,2,2));
+  TGCompositeFrame *tab_2_0 = fTabContainerTwo->AddTab("Max per channel");
+  CreateAnalysisMax(tab_2_0);
+  TGCompositeFrame *tab_2_1 = fTabContainerTwo->AddTab("Signal per channel");
+  CreateAnalysisSgn(tab_2_1);
+  TGCompositeFrame *tab_2_2 = fTabContainerTwo->AddTab("Cluster's width");
+  CreateAnalysisWid(tab_2_2);
+  TGCompositeFrame *tab_2_3 = fTabContainerTwo->AddTab("Cluster's amplitude");
+  CreateAnalysisAmp(tab_2_3);
+  TGCompositeFrame *tab_2_4 = fTabContainerTwo->AddTab("Cluster's centroid");
+  CreateAnalysisCen(tab_2_4);
+  fWindowTwo->MapSubwindows();
+  fWindowTwo->Layout();
+  fWindowTwo->MapWindow();
+  fWindowTwo->Move(0,0);
   ///////////////
 
 
