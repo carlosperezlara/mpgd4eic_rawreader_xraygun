@@ -125,7 +125,6 @@ int main(int nn, char** arg) {
   } else {
     //rcdaqopen();
   }
-  
   TApplication *app = new TApplication("gui",0,0);
   gDM = new DataMonitor(app, 1600, 850);
   

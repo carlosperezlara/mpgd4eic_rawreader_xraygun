@@ -69,7 +69,10 @@ void DataMonitor::Merge() {
 	for(int k=0; k!=binssa; ++k) {
 	  double val = fScan[i]->GetBinContent(j+1,k+1);
 	  fScanAdc[i]->Fill(double(j),double(k),val);
-	  if(j==75) fScanWav[i]->Fill(double(k),val);
+	  if(j==77) {
+	    fScanWav[i]->SetName( Form("SCANWAV0 - channel %d",77) );
+	    fScanWav[i]->Fill(double(k),val);
+	  }
 	  val -= ped;
 	  fScanPed[i]->Fill(double(j),double(k),val);
 	  if((k>kmin)&&(k<kmax)) {
@@ -80,11 +83,13 @@ void DataMonitor::Merge() {
       }
     }
     if(fNoEventsSampled>kNumberOfEventsLearning) {
+      RefreshAll(); // full refresh before learn
       Learn();
-    }
-    if(fNoEventsSampled%kMergeRefresh==0) {
-      RefreshAll();
-      std::cout << fNoEventsSampled << std::endl;
+    } else {
+      if(fNoEventsSampled%kMergeRefresh==0) {
+	RefreshAll(true);
+	std::cout << fNoEventsSampled << std::endl;
+      }
     }
   } else { // analysis stage
     for(int i=0; i!=kNumberOfBoards; ++i) {
@@ -109,18 +114,25 @@ void DataMonitor::Merge() {
 	  sum += val;
         }
         fAnalysisMax[i]->Fill(double(j),max);
+	if( max > 3900 ) continue; /// <===== CUT
+	//std::cout << "*** " << max << "=>" << sum << std::endl;
+	//if( sum < 1 ) continue; /// <===== CUT
         fAnalysisSgn[i]->Fill(double(j),sum);
 	myhits.push_back( std::make_pair( fDREAMChannel[i][j], sum ) );
       }
       const MappingPlane *mplane = GetMappingPlane(i, fBoardCELL[i] );
       if(!mplane) continue;
       std::vector<Cluster> myclusters = mplane->GetClusters( myhits );
-      std::cout << myclusters.size() << " clusters" << std::endl;
+      //std::cout << myclusters.size() << " clusters" << std::endl;
       for(unsigned kk=0; kk!=myclusters.size(); ++kk) {
 	fAnalysisWid[i]->Fill( myclusters[kk].mWidth );
 	fAnalysisAmp[i]->Fill( myclusters[kk].mAmplitude );
 	fAnalysisCen[i]->Fill( myclusters[kk].mCentroid );
       }
+    }
+    if(fNoEventsSampled%kMergeRefresh==0) {
+      RefreshAll(false);
+      std::cout << fNoEventsSampled << std::endl;
     }
   }
 
@@ -177,7 +189,7 @@ void DataMonitor::Merge() {
     //std::cout << std::endl;
   }
   if(fNoEventsSampled%kMergeRefresh==0) {
-    RefreshAll();
+    RefreshAll(true);
   }
 }
 //====================
@@ -541,10 +553,10 @@ void DataMonitor::CreateScansAdc(TGCompositeFrame *mf) {
   fCanvasScansAdc = new TCanvas("CanvasScans", 10, 10, cId2);
   embeddedCanvas2->AdoptCanvas(fCanvasScansAdc);
   mf2->AddFrame(embeddedCanvas2, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
-  fCanvasScansAdc->Divide(kNumberOfBoards,1,0,0);
+  fCanvasScansAdc->Divide(kNumberOfBoards,1);
   for(int i=0; i!=kNumberOfBoards; ++i) {
     TVirtualPad *tmp = fCanvasScansAdc->cd(i+1);
-    fScanAdc[i]->Draw("COL");
+    fScanAdc[i]->Draw("lego");
   }
 }
 //====================
@@ -556,7 +568,7 @@ void DataMonitor::CreateScansWav(TGCompositeFrame *mf) {
   fCanvasScansWav = new TCanvas("CanvasScansWav", 10, 10, cId2);
   embeddedCanvas2->AdoptCanvas(fCanvasScansWav);
   mf2->AddFrame(embeddedCanvas2, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
-  fCanvasScansWav->Divide(kNumberOfBoards,1,0,0);
+  fCanvasScansWav->Divide(kNumberOfBoards,1);
   for(int i=0; i!=kNumberOfBoards; ++i) {
     TVirtualPad *tmp = fCanvasScansWav->cd(i+1);
     fScanWav[i]->Draw("hist");
@@ -571,10 +583,10 @@ void DataMonitor::CreateScansPed(TGCompositeFrame *mf) {
   fCanvasScansPed = new TCanvas("CanvasScansPed", 10, 10, cId2);
   embeddedCanvas2->AdoptCanvas(fCanvasScansPed);
   mf2->AddFrame(embeddedCanvas2, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
-  fCanvasScansPed->Divide(kNumberOfBoards,1,0,0);
+  fCanvasScansPed->Divide(kNumberOfBoards,1);
   for(int i=0; i!=kNumberOfBoards; ++i) {
     TVirtualPad *tmp = fCanvasScansPed->cd(i+1);
-    fScanPed[i]->Draw("COL");
+    fScanPed[i]->Draw("lego");
   }
 }
 //====================
@@ -586,7 +598,7 @@ void DataMonitor::CreateScansSgn(TGCompositeFrame *mf) {
   fCanvasScansSgn = new TCanvas("CanvasScansSgn", 10, 10, cId2);
   embeddedCanvas2->AdoptCanvas(fCanvasScansSgn);
   mf2->AddFrame(embeddedCanvas2, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
-  fCanvasScansSgn->Divide(kNumberOfBoards,1,0,0);
+  fCanvasScansSgn->Divide(kNumberOfBoards,1);
   for(int i=0; i!=kNumberOfBoards; ++i) {
     TVirtualPad *tmp = fCanvasScansSgn->cd(i+1);
     fScanSgn[i]->Draw("hist");
@@ -601,7 +613,7 @@ void DataMonitor::CreateAnalysisMax(TGCompositeFrame *mf) {
   fCanvasAnalysisMax = new TCanvas("CanvasAnalysisMax", 10, 10, cId2);
   embeddedCanvas2->AdoptCanvas(fCanvasAnalysisMax);
   mf2->AddFrame(embeddedCanvas2, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
-  fCanvasAnalysisMax->Divide(kNumberOfBoards,1,0,0);
+  fCanvasAnalysisMax->Divide(kNumberOfBoards,1);
   for(int i=0; i!=kNumberOfBoards; ++i) {
     TVirtualPad *tmp = fCanvasAnalysisMax->cd(i+1);
     fAnalysisMax[i]->Draw("colz");
@@ -616,7 +628,7 @@ void DataMonitor::CreateAnalysisSgn(TGCompositeFrame *mf) {
   fCanvasAnalysisSgn = new TCanvas("CanvasAnalysisSgn", 10, 10, cId2);
   embeddedCanvas2->AdoptCanvas(fCanvasAnalysisSgn);
   mf2->AddFrame(embeddedCanvas2, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
-  fCanvasAnalysisSgn->Divide(kNumberOfBoards,1,0,0);
+  fCanvasAnalysisSgn->Divide(kNumberOfBoards,1);
   for(int i=0; i!=kNumberOfBoards; ++i) {
     TVirtualPad *tmp = fCanvasAnalysisSgn->cd(i+1);
     fAnalysisSgn[i]->Draw("colz");
@@ -631,7 +643,7 @@ void DataMonitor::CreateAnalysisWid(TGCompositeFrame *mf) {
   fCanvasAnalysisWid = new TCanvas("CanvasAnalysisWid", 10, 10, cId2);
   embeddedCanvas2->AdoptCanvas(fCanvasAnalysisWid);
   mf2->AddFrame(embeddedCanvas2, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
-  fCanvasAnalysisWid->Divide(kNumberOfBoards,1,0,0);
+  fCanvasAnalysisWid->Divide(kNumberOfBoards,1);
   for(int i=0; i!=kNumberOfBoards; ++i) {
     TVirtualPad *tmp = fCanvasAnalysisWid->cd(i+1);
     fAnalysisWid[i]->Draw("colz");
@@ -646,7 +658,7 @@ void DataMonitor::CreateAnalysisAmp(TGCompositeFrame *mf) {
   fCanvasAnalysisAmp = new TCanvas("CanvasAnalysisAmp", 10, 10, cId2);
   embeddedCanvas2->AdoptCanvas(fCanvasAnalysisAmp);
   mf2->AddFrame(embeddedCanvas2, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
-  fCanvasAnalysisAmp->Divide(kNumberOfBoards,1,0,0);
+  fCanvasAnalysisAmp->Divide(kNumberOfBoards,1);
   for(int i=0; i!=kNumberOfBoards; ++i) {
     TVirtualPad *tmp = fCanvasAnalysisAmp->cd(i+1);
     fAnalysisAmp[i]->Draw("colz");
@@ -661,7 +673,7 @@ void DataMonitor::CreateAnalysisCen(TGCompositeFrame *mf) {
   fCanvasAnalysisCen = new TCanvas("CanvasAnalysisCen", 10, 10, cId2);
   embeddedCanvas2->AdoptCanvas(fCanvasAnalysisCen);
   mf2->AddFrame(embeddedCanvas2, new TGLayoutHints(kLHintsLeft | kLHintsTop,5,5,2,2));
-  fCanvasAnalysisCen->Divide(kNumberOfBoards,1,0,0);
+  fCanvasAnalysisCen->Divide(kNumberOfBoards,1);
   for(int i=0; i!=kNumberOfBoards; ++i) {
     TVirtualPad *tmp = fCanvasAnalysisCen->cd(i+1);
     fAnalysisCen[i]->Draw("colz");
@@ -841,57 +853,137 @@ void DataMonitor::Learn() {
   fLearning = kFALSE;
 }
 //====================
-void DataMonitor::RefreshAll() {
+void DataMonitor::RefreshAll(Bool_t quick) {
   //std::cout << "  >> RefreshAll called" << std::endl;
 
   // refresh TabContainerOne
-  if(fTabContainerOne) {
-    if(fTabContainerOne->GetCurrent()==0&&fCanvasScansAdc) {
-      fCanvasScansAdc->SetEditable(kTRUE);
-      for(int i=0; i!=kNumberOfBoards; ++i) {
-	if(fNotInstalled[i]) continue;
-	fCanvasScansAdc->cd(i+1)->Modified();
-	fCanvasScansAdc->cd(i+1)->Update();
+  if(fLearning&&fTabContainerOne) {
+    if(fCanvasScansAdc) {
+      if( (fTabContainerOne->GetCurrent()==0) || !quick ) {
+	fCanvasScansAdc->SetEditable(kTRUE);
+	for(int i=0; i!=kNumberOfBoards; ++i) {
+	  if(fNotInstalled[i]) continue;
+	  fCanvasScansAdc->cd(i+1)->Modified();
+	  fCanvasScansAdc->cd(i+1)->Update();
+	}
+	fCanvasScansAdc->Modified();
+	fCanvasScansAdc->Update();
+	fCanvasScansAdc->SetEditable(kFALSE);
       }
-      fCanvasScansAdc->Modified();
-      fCanvasScansAdc->Update();
-      fCanvasScansAdc->SetEditable(kFALSE);
     }
-    if(fTabContainerOne->GetCurrent()==1&&fCanvasScansSgn) {
-      fCanvasScansWav->SetEditable(kTRUE);
-      for(int i=0; i!=kNumberOfBoards; ++i) {
-	if(fNotInstalled[i]) continue;
-	fCanvasScansWav->cd(i+1)->Modified();
-	fCanvasScansWav->cd(i+1)->Update();
+    if(fCanvasScansSgn) {
+      if( (fTabContainerOne->GetCurrent()==1) || !quick ) {
+	fCanvasScansWav->SetEditable(kTRUE);
+	for(int i=0; i!=kNumberOfBoards; ++i) {
+	  if(fNotInstalled[i]) continue;
+	  fCanvasScansWav->cd(i+1)->Modified();
+	  fCanvasScansWav->cd(i+1)->Update();
+	}
+	fCanvasScansWav->Modified();
+	fCanvasScansWav->Update();
+	fCanvasScansWav->SetEditable(kFALSE);
       }
-      fCanvasScansWav->Modified();
-      fCanvasScansWav->Update();
-      fCanvasScansWav->SetEditable(kFALSE);
     }
-    if(fTabContainerOne->GetCurrent()==2&&fCanvasScansPed) {
-      fCanvasScansPed->SetEditable(kTRUE);
-      for(int i=0; i!=kNumberOfBoards; ++i) {
-	if(fNotInstalled[i]) continue;
-	fCanvasScansPed->cd(i+1)->Modified();
-	fCanvasScansPed->cd(i+1)->Update();
+    if(fCanvasScansPed) {
+      if( (fTabContainerOne->GetCurrent()==2) || !quick ) {
+	fCanvasScansPed->SetEditable(kTRUE);
+	for(int i=0; i!=kNumberOfBoards; ++i) {
+	  if(fNotInstalled[i]) continue;
+	  fCanvasScansPed->cd(i+1)->Modified();
+	  fCanvasScansPed->cd(i+1)->Update();
+	}
+	fCanvasScansPed->Modified();
+	fCanvasScansPed->Update();
+	fCanvasScansPed->SetEditable(kFALSE);
       }
-      fCanvasScansPed->Modified();
-      fCanvasScansPed->Update();
-      fCanvasScansPed->SetEditable(kFALSE);
     }
-    if(fTabContainerOne->GetCurrent()==3&&fCanvasScansSgn) {
-      fCanvasScansSgn->SetEditable(kTRUE);
-      for(int i=0; i!=kNumberOfBoards; ++i) {
-	if(fNotInstalled[i]) continue;
-	fCanvasScansSgn->cd(i+1)->Modified();
-	fCanvasScansSgn->cd(i+1)->Update();
+    if(fCanvasScansSgn) {
+      if( (fTabContainerOne->GetCurrent()==3) || !quick ) {
+	fCanvasScansSgn->SetEditable(kTRUE);
+	for(int i=0; i!=kNumberOfBoards; ++i) {
+	  if(fNotInstalled[i]) continue;
+	  fCanvasScansSgn->cd(i+1)->Modified();
+	  fCanvasScansSgn->cd(i+1)->Update();
+	}
+	fCanvasScansSgn->Modified();
+	fCanvasScansSgn->Update();
+	fCanvasScansSgn->SetEditable(kFALSE);
       }
-      fCanvasScansSgn->Modified();
-      fCanvasScansSgn->Update();
-      fCanvasScansSgn->SetEditable(kFALSE);
     }
   }
 
+  if(!fLearning&&fTabContainerTwo) {
+    std::cout << "I am refreshing..." << std::endl;
+    if(fCanvasAnalysisMax) {
+      if( (fTabContainerTwo->GetCurrent()==0) || !quick ) {
+	fCanvasAnalysisMax->SetEditable(kTRUE);
+	for(int i=0; i!=kNumberOfBoards; ++i) {
+	  if(fNotInstalled[i]) continue;
+	  fCanvasAnalysisMax->cd(i+1)->Modified();
+	  fCanvasAnalysisMax->cd(i+1)->Update();
+	}
+	fCanvasAnalysisMax->Modified();
+	fCanvasAnalysisMax->Update();
+	fCanvasAnalysisMax->SetEditable(kFALSE);
+      }
+    }
+    if(fCanvasAnalysisSgn) {
+      if( (fTabContainerTwo->GetCurrent()==1) || !quick ) {
+	fCanvasAnalysisSgn->SetEditable(kTRUE);
+	for(int i=0; i!=kNumberOfBoards; ++i) {
+	  if(fNotInstalled[i]) continue;
+	  fCanvasAnalysisSgn->cd(i+1)->Modified();
+	  fCanvasAnalysisSgn->cd(i+1)->Update();
+	}
+	fCanvasAnalysisSgn->Modified();
+	fCanvasAnalysisSgn->Update();
+	fCanvasAnalysisSgn->SetEditable(kFALSE);
+      }
+    }
+    if(fCanvasAnalysisWid) {
+      if( (fTabContainerTwo->GetCurrent()==2) || !quick ) {
+	fCanvasAnalysisWid->SetEditable(kTRUE);
+	for(int i=0; i!=kNumberOfBoards; ++i) {
+	  if(fNotInstalled[i]) continue;
+	  fCanvasAnalysisWid->cd(i+1)->Modified();
+	  fCanvasAnalysisWid->cd(i+1)->Update();
+	}
+	fCanvasAnalysisWid->Modified();
+	fCanvasAnalysisWid->Update();
+	fCanvasAnalysisWid->SetEditable(kFALSE);
+      }
+    }
+    if(fCanvasAnalysisAmp) {
+      if( (fTabContainerTwo->GetCurrent()==3) || !quick ) {
+	fCanvasAnalysisAmp->SetEditable(kTRUE);
+	for(int i=0; i!=kNumberOfBoards; ++i) {
+	  if(fNotInstalled[i]) continue;
+	  fCanvasAnalysisAmp->cd(i+1)->Modified();
+	  fCanvasAnalysisAmp->cd(i+1)->Update();
+	}
+	fCanvasAnalysisAmp->Modified();
+	fCanvasAnalysisAmp->Update();
+	fCanvasAnalysisAmp->SetEditable(kFALSE);
+      }
+    }
+    if(fCanvasAnalysisCen) {
+      if( (fTabContainerTwo->GetCurrent()==4) || !quick ) {
+	fCanvasAnalysisCen->SetEditable(kTRUE);
+	for(int i=0; i!=kNumberOfBoards; ++i) {
+	  if(fNotInstalled[i]) continue;
+	  fCanvasAnalysisCen->cd(i+1)->Modified();
+	  fCanvasAnalysisCen->cd(i+1)->Update();
+	}
+	fCanvasAnalysisCen->Modified();
+	fCanvasAnalysisCen->Update();
+	fCanvasAnalysisCen->SetEditable(kFALSE);
+      }
+    }
+  }
+
+
+  return;
+  
   if(fTabContainer) {
     fCanvasMapHI->SetEditable(kTRUE);
     for(int i=0; i!=kNumberOfBoards; ++i) {
@@ -1030,6 +1122,8 @@ void DataMonitor::ReCreateHistograms() {
     fClusters_xCE[i] = new TH1D( Form("CLUX%d",i),Form("CLUX%d",i),100,-5.1,+5.1);  StyleH1(fClusters_xCE[i]);
     fTimeSummary[i] = new TProfile( Form("TS%d",i),Form("TS%d;sample  idx;counts",i),
 				    kNumberOfSamples,-0.5,kNumberOfSamples-0.5,"S");
+
+
     fScan[i] = new TH2D( Form("SCAN%d",i), Form("SCAN%d;Channel;Sample",i),
 			 kTotalNumberOfChannels, -0.5, kTotalNumberOfChannels-0.5,
 			 kNumberOfSamples, -0.5, kNumberOfSamples-0.5 );
@@ -1043,18 +1137,27 @@ void DataMonitor::ReCreateHistograms() {
 				  kNumberOfSamples, -0.5, kNumberOfSamples-0.5 );
     fScanSgn[i] = new TProfile( Form("SCANSGN%d",i), Form("SCANSGN%d;Channel;< sgn >",i),
 				kTotalNumberOfChannels, -0.5, kTotalNumberOfChannels-0.5 );
+    fScanAdc[i]->SetStats(0);
+    fScanWav[i]->SetStats(0);
+    fScanPed[i]->SetStats(0);
+    fScanSgn[i]->SetStats(0);
     fAnalysisMax[i] = new TH2D( Form("ANAMAX%d",i), Form("ANAMAX%d;Channel;Max",i),
 				kNumberOfChannels, -0.5, kNumberOfChannels-0.5,
-				100, 0.0, 4e3 );
+				100, 0.0, 4100 );
     fAnalysisSgn[i] = new TH2D( Form("ANASGN%d",i), Form("ANASGN%d;Channel;Signal",i),
 				kNumberOfChannels, -0.5, kNumberOfChannels-0.5,
-				300, 0.0, fIntHWindow[i]*2*4e3/*1e5*/ );
+				100, 0.0, fIntHWindow[i]*2*4100/*1e5*/ );
     fAnalysisWid[i] = new TH1D( Form("ANAWID%d",i), Form("ANAWID%d;Width",i),
 				kNumberOfChannels, -0.5, kNumberOfChannels-0.5);
     fAnalysisAmp[i] = new TH1D( Form("ANAAMP%d",i), Form("ANAAMP%d;Amplitude",i),
 				300, 0.0, kNumberOfChannels*2*fIntHWindow[i]*4e3);
     fAnalysisCen[i] = new TH1D( Form("ANACEN%d",i), Form("ANACEN%d;Position  [mm]",i),
-				300, -5.0, +5.0);
+				300, -5.2, +5.2);
+    //fAnalysisMax[i]->SetStats(0);
+    //fAnalysisSgn[i]->SetStats(0);
+    fAnalysisWid[i]->SetStats(0);
+    fAnalysisAmp[i]->SetStats(0);
+    fAnalysisCen[i]->SetStats(0);
     for(int j=0; j!=kNumberOfChannels; ++j) {
       fChannel[i][j] = NULL;
       fSignal[i][j] = NULL;
@@ -1285,7 +1388,7 @@ DataMonitor::DataMonitor(TApplication *app, UInt_t w, UInt_t h) {
   */
 
   fReady = kTRUE;
-  RefreshAll();
+  RefreshAll(true);
 
   std::cout << " DM: Please wait few seconds. Starting engine..." << std::endl;
 }

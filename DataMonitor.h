@@ -150,7 +150,7 @@ class DataMonitor {
  public:
   DataMonitor(TApplication *app, UInt_t w, UInt_t h);
   virtual ~DataMonitor();
-  void RefreshAll();
+  void RefreshAll(Bool_t bQuick=false);
   TH1D* GetChannel(int b, int s) {return fChannel[b][s];}
   TH2D* GetScan(int b) {return fScan[b];}
   void NewRun(Int_t run);
