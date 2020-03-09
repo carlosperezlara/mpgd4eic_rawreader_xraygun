@@ -1,0 +1,8 @@
+kNumberOfBoards 1
+kTotalNumberOfChannels 128
+kNumberOfChannels 16
+kNumberOfSamples 64
+kNumberOfEventsLearning 500
+kMergeRefresh 1000
+kNewEventRefresh 100
+fEBEPedestals 1
